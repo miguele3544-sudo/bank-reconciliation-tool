@@ -1,0 +1,10 @@
+date,description,amount
+2026-10-02,Customer payment - Delta,500.00
+2026-10-03,Customer payment - Echo,500.00
+2026-10-13,Check #205,-540.00
+2026-10-15,Customer payment - Foxtrot,1200.00
+2026-10-18,Returned item - NSF Foxtrot,-1200.00
+2026-10-18,NSF fee,-25.00
+2026-10-22,Check #210,-300.00
+2026-10-28,Deposit - Golf Inc,700.00
+2026-10-31,Bank service fee,-12.00
