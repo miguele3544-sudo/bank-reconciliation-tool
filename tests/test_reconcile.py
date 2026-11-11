@@ -18,3 +18,4 @@ def test_finds_book_only_items():
 def test_balances_agree():
     result = run()
     assert result["difference"] == 0
+    

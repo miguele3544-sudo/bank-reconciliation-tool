@@ -59,3 +59,4 @@ if __name__ == "__main__":
     print(f"\nAdjusted bank balance: {result['adjusted_bank']:,.2f}")
     print(f"Adjusted book balance: {result['adjusted_book']:,.2f}")
     print(f"Difference:            {result['difference']:,.2f}")
+    
