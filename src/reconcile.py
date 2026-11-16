@@ -2,6 +2,24 @@ import argparse
 
 import pandas as pd
 
+# Keyword rules for choosing the account in proposed journal entries.
+# The first keyword found in a description wins, so more specific rules go first.
+# Add your own rules here, e.g. ("office depot", "Supplies expense").
+ACCOUNT_RULES = [
+    ("fee", "Bank fees expense"),
+    ("returned item", "Accounts receivable"),
+    ("nsf", "Accounts receivable"),
+    ("interest", "Interest income"),
+    ("insurance", "Insurance expense"),
+    ("power", "Utilities expense"),
+    ("office depot", "Supplies expense"),
+    ("electric", "Utilities expense"),
+    ("supplies", "Supplies expense"),
+    ("postage", "Postage expense"),
+    ("repair", "Repairs expense"),
+    ("rent", "Rent expense"),
+]
+
 
 def load_transactions(path):
     df = pd.read_csv(path, parse_dates=["date"])
@@ -128,6 +146,50 @@ def find_near_matches(bank, ledger, near_match_days=10):
     return pd.DataFrame(near_matches, columns=columns)
 
 
+def guess_account(description):
+    text = description.lower()
+    for keyword, account in ACCOUNT_RULES:
+        if keyword in text:
+            return account
+    return "Suspense - needs review"
+
+
+def make_entry(number, cash_change, account, memo):
+    # cash_change is the effect on Cash: positive means Cash goes up.
+    value = round(abs(cash_change), 2)
+    if cash_change > 0:
+        debit_account, credit_account = "Cash", account
+    else:
+        debit_account, credit_account = account, "Cash"
+    return [
+        {"entry": number, "account": debit_account, "debit": value, "credit": 0.0, "memo": memo},
+        {"entry": number, "account": credit_account, "debit": 0.0, "credit": value, "memo": ""},
+    ]
+
+
+def build_journal_entries(unmatched_bank, recording_errors, duplicates):
+    items = []
+    for _, row in unmatched_bank.iterrows():
+        items.append((row["amount"], guess_account(row["description"]),
+                      f"Record {row['description']} per bank statement"))
+    for _, row in recording_errors.iterrows():
+        items.append((row["book_correction"], guess_account(row["ledger_description"]),
+                      f"Correct {row['error_type'].lower()}: {row['ledger_description']}"))
+    for _, row in duplicates.iterrows():
+        items.append((row["book_correction"], guess_account(row["description"]),
+                      f"Reverse duplicate entry: {row['description']}"))
+
+    lines = []
+    for number, (cash_change, account, memo) in enumerate(items, start=1):
+        lines.extend(make_entry(number, cash_change, account, memo))
+    return pd.DataFrame(lines, columns=["entry", "account", "debit", "credit", "memo"])
+
+
+def net_cash_effect(entries):
+    cash = entries[entries["account"] == "Cash"]
+    return round(cash["debit"].sum() - cash["credit"].sum(), 2)
+
+
 def reconcile(bank_path, ledger_path, bank_ending_balance, book_ending_balance,
               date_tolerance_days=3, near_match_days=10):
     bank = load_transactions(bank_path)
@@ -151,6 +213,7 @@ def reconcile(bank_path, ledger_path, bank_ending_balance, book_ending_balance,
         + duplicates["book_correction"].sum(),
         2,
     )
+    journal_entries = build_journal_entries(unmatched_bank, recording_errors, duplicates)
 
     return {
         "unmatched_bank": unmatched_bank,
@@ -158,6 +221,7 @@ def reconcile(bank_path, ledger_path, bank_ending_balance, book_ending_balance,
         "recording_errors": recording_errors,
         "duplicates": duplicates,
         "near_matches": near_matches,
+        "journal_entries": journal_entries,
         "adjusted_bank": adjusted_bank,
         "adjusted_book": adjusted_book,
         "difference": round(adjusted_bank - adjusted_book, 2),
@@ -172,6 +236,19 @@ def print_section(title, table):
         print(table.to_string(index=False))
 
 
+def print_journal_entries(entries):
+    print("\nProposed journal entries:")
+    if entries.empty:
+        print("None needed")
+        return
+    display = entries.copy()
+    for col in ["debit", "credit"]:
+        display[col] = display[col].map(lambda x: f"{x:,.2f}" if x else "")
+    print(display.to_string(index=False))
+    print(f"Totals: debits {entries['debit'].sum():,.2f}, credits {entries['credit'].sum():,.2f}")
+    print(f"Net effect on Cash: {net_cash_effect(entries):,.2f}")
+
+
 def print_report(result):
     cols = ["date", "description", "amount"]
     print_section("On bank statement but not in books (record these):",
@@ -184,6 +261,7 @@ def print_report(result):
                   result["duplicates"])
     print_section("Matched, but dates are far apart (review these):",
                   result["near_matches"])
+    print_journal_entries(result["journal_entries"])
     print(f"\nAdjusted bank balance: {result['adjusted_bank']:,.2f}")
     print(f"Adjusted book balance: {result['adjusted_book']:,.2f}")
     print(f"Difference:            {result['difference']:,.2f}")

@@ -1,4 +1,4 @@
-from src.reconcile import classify_error, reconcile
+from src.reconcile import classify_error, guess_account, net_cash_effect, reconcile
 
 
 def run():
@@ -62,3 +62,24 @@ def test_hard_recording_errors():
 
 def test_hard_duplicate():
     assert run_hard()["duplicates"]["book_correction"].tolist() == [600.00]
+
+
+def test_guess_account():
+    assert guess_account("NSF fee") == "Bank fees expense"
+    assert guess_account("Returned item - NSF Foxtrot") == "Accounts receivable"
+    assert guess_account("INTEREST PAID") == "Interest income"
+    assert guess_account("Customer payment - Delta") == "Suspense - needs review"
+
+
+def test_tricky_journal_entries():
+    result = run_tricky()
+    entries = result["journal_entries"]
+    assert entries["entry"].nunique() == 5
+    assert entries["debit"].sum() == entries["credit"].sum()
+    # The entries should move the book balance exactly to the adjusted book balance.
+    assert net_cash_effect(entries) == round(result["adjusted_book"] - 11000.00, 2)
+
+
+def test_hard_entries_balance():
+    entries = run_hard()["journal_entries"]
+    assert round(entries["debit"].sum(), 2) == round(entries["credit"].sum(), 2)
